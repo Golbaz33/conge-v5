@@ -1,0 +1,8 @@
+openpyxl
+pyyaml
+python-dateutil
+tkcalendar
+holidays
+PyYAML
+pytest
+python-docx
