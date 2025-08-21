@@ -1,9 +1,10 @@
 # Fichier : ui/main_window.py
-# Version finale avec la logique de formatage correcte pour la génération de décision.
+# Version finale corrigée : Gestion des tâches de fond (threading),
+# ouverture de fichiers multi-plateforme et chemins robustes.
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-from collections import defaultdict, Counter
+from collections import defaultdict
 from dateutil import parser
 import logging
 import os
@@ -11,6 +12,7 @@ import sqlite3
 import threading
 from datetime import datetime, date
 import subprocess
+import sys
 
 from core.conges.manager import CongeManager
 from core.constants import SoldeStatus
@@ -33,9 +35,10 @@ def treeview_sort_column(tv, col, reverse):
     tv.heading(col, command=lambda: treeview_sort_column(tv, col, not reverse))
 
 class MainWindow(tk.Tk):
-    def __init__(self, manager: CongeManager):
+    def __init__(self, manager: CongeManager, base_dir: str):
         super().__init__()
         self.manager = manager
+        self.base_dir = base_dir
         self.title(f"{CONFIG['app']['title']} - v{CONFIG['app']['version']}")
         self.minsize(1400, 700)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -93,7 +96,7 @@ class MainWindow(tk.Tk):
         conges_frame = ttk.LabelFrame(right_pane, text="Congés de l'agent sélectionné"); right_pane.add(conges_frame, weight=3)
         filter_frame = ttk.Frame(conges_frame); filter_frame.pack(fill=tk.X, padx=5, pady=5); ttk.Label(filter_frame, text="Filtrer par type:").pack(side=tk.LEFT, padx=(0, 5))
         self.conge_filter_var = tk.StringVar(value="Tous"); conge_filter_combo = ttk.Combobox(filter_frame, textvariable=self.conge_filter_var, values=["Tous"] + CONFIG['ui']['types_conge'], state="readonly"); conge_filter_combo.pack(side=tk.LEFT, fill=tk.X, expand=True); conge_filter_combo.bind("<<ComboboxSelected>>", self.on_agent_select)
-        cols_conges = ("CongeID", "Certificat", "Type", "Début", "Fin", "Date Reprise", "Jours", "Justification", "Intérimaire");
+        cols_conges = ("CongeID", "Certificat", "Type", "Début", "Fin", "Date Reprise", "Jours", "Justification", "Intérimaire")
         self.list_conges = ttk.Treeview(conges_frame, columns=cols_conges, show="headings", selectmode="browse")
         for col in cols_conges: self.list_conges.heading(col, text=col, command=lambda c=col: treeview_sort_column(self.list_conges, c, False))
         self.list_conges.column("CongeID", width=0, stretch=False); self.list_conges.column("Certificat", width=80, anchor="center"); self.list_conges.column("Type", width=120); self.list_conges.column("Début", width=90, anchor="center"); self.list_conges.column("Fin", width=90, anchor="center"); self.list_conges.column("Date Reprise", width=90, anchor="center"); self.list_conges.column("Jours", width=50, anchor="center"); self.list_conges.column("Intérimaire", width=150)
@@ -102,7 +105,7 @@ class MainWindow(tk.Tk):
         self.list_conges.bind("<Double-1>", lambda e: self.on_conge_double_click())
         self.list_conges.bind("<<TreeviewSelect>>", self._update_conge_action_buttons_state)
         
-        self.btn_frame_conges = ttk.Frame(conges_frame); self.btn_frame_conges.pack(fill=tk.X, padx=5, pady=(0, 5));
+        self.btn_frame_conges = ttk.Frame(conges_frame); self.btn_frame_conges.pack(fill=tk.X, padx=5, pady=(0, 5))
         ttk.Button(self.btn_frame_conges, text="Ajouter", command=self.add_conge_ui).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2); ttk.Button(self.btn_frame_conges, text="Modifier", command=self.modify_selected_conge).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2); ttk.Button(self.btn_frame_conges, text="Supprimer", command=self.delete_selected_conge).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
         self.btn_generate_decision = ttk.Button(self.btn_frame_conges, text="Générer Décision", command=self.on_generate_decision_click, state="disabled")
         self.btn_generate_decision.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
@@ -130,20 +133,20 @@ class MainWindow(tk.Tk):
     def get_selected_agent_id(self):
         selection = self.list_agents.selection(); return int(self.list_agents.item(selection[0])["values"][0]) if selection else None
     def get_selected_conge_id(self):
-        selection = self.list_conges.selection();
+        selection = self.list_conges.selection()
         if not selection: return None
-        item = self.list_conges.item(selection[0]);
+        item = self.list_conges.item(selection[0])
         if "summary" in item["tags"]: return None
         return int(item["values"][0]) if item["values"] else None
     def add_agent_ui(self): AgentForm(self, self.manager)
     def modify_selected_agent(self):
-        agent_id = self.get_selected_agent_id();
+        agent_id = self.get_selected_agent_id()
         if agent_id: AgentForm(self, self.manager, agent_id_to_modify=agent_id)
         else: messagebox.showwarning("Aucune sélection", "Veuillez sélectionner un agent à modifier.")
     def delete_selected_agent(self):
-        agent_id = self.get_selected_agent_id();
+        agent_id = self.get_selected_agent_id()
         if not agent_id: messagebox.showwarning("Aucune sélection", "Veuillez sélectionner un agent à supprimer."); return
-        agent = self.manager.get_agent_by_id(agent_id);
+        agent = self.manager.get_agent_by_id(agent_id)
         if not agent: messagebox.showerror("Erreur", "Agent introuvable."); return
         agent_nom = f"{agent.nom} {agent.prenom}"
         if messagebox.askyesno("Confirmation", f"Supprimer l'agent '{agent_nom}' et tous ses congés ?\nCette action est irréversible."):
@@ -151,11 +154,11 @@ class MainWindow(tk.Tk):
                 if self.manager.delete_agent(agent.id): self.set_status(f"Agent '{agent_nom}' supprimé."); self.refresh_all()
             except Exception as e: messagebox.showerror("Erreur de suppression", f"Une erreur est survenue : {e}")
     def add_conge_ui(self):
-        agent_id = self.get_selected_agent_id();
+        agent_id = self.get_selected_agent_id()
         if agent_id: CongeForm(self, self.manager, agent_id)
         else: messagebox.showwarning("Aucun agent", "Veuillez sélectionner un agent.")
     def modify_selected_conge(self):
-        agent_id = self.get_selected_agent_id(); conge_id = self.get_selected_conge_id();
+        agent_id = self.get_selected_agent_id(); conge_id = self.get_selected_conge_id()
         if agent_id and conge_id: CongeForm(self, self.manager, agent_id, conge_id=conge_id)
         else: messagebox.showwarning("Aucune sélection", "Veuillez sélectionner un congé à modifier.")
     
@@ -181,18 +184,18 @@ class MainWindow(tk.Tk):
         current_selection = agent_to_select_id or self.get_selected_agent_id(); self.refresh_agents_list(current_selection); self.refresh_stats()
     def refresh_agents_list(self, agent_to_select_id=None):
         for row in self.list_agents.get_children(): self.list_agents.delete(row)
-        term = self.search_var.get().strip().lower() or None; 
-        total_items = self.manager.get_agents_count(term); 
-        self.total_pages = max(1, (total_items + self.items_per_page - 1) // self.items_per_page); 
-        self.current_page = min(self.current_page, self.total_pages); 
-        offset = (self.current_page - 1) * self.items_per_page; 
-        agents = self.manager.get_all_agents(term=term, limit=self.items_per_page, offset=offset); 
+        term = self.search_var.get().strip().lower() or None 
+        total_items = self.manager.get_agents_count(term) 
+        self.total_pages = max(1, (total_items + self.items_per_page - 1) // self.items_per_page) 
+        self.current_page = min(self.current_page, self.total_pages) 
+        offset = (self.current_page - 1) * self.items_per_page 
+        agents = self.manager.get_all_agents(term=term, limit=self.items_per_page, offset=offset) 
         selected_item_id = None
         an_n, an_n1, an_n2 = self.annee_exercice, self.annee_exercice - 1, self.annee_exercice - 2
         for agent in agents:
             soldes_par_annee = {s.annee: s.solde for s in agent.soldes_annuels if s.statut == SoldeStatus.ACTIF}
             solde_n2 = soldes_par_annee.get(an_n2, 0.0); solde_n1 = soldes_par_annee.get(an_n1, 0.0); solde_n  = soldes_par_annee.get(an_n, 0.0)
-            solde_total = solde_n2 + solde_n1 + solde_n
+            solde_total = agent.get_solde_total_actif()
             agent_values = (agent.id, agent.nom, agent.prenom, agent.ppr, agent.grade, f"{solde_n2:.1f} j", f"{solde_n1:.1f} j", f"{solde_n:.1f} j", f"{solde_total:.1f} j")
             item_id = self.list_agents.insert("", "end", values=agent_values)
             if agent.id == agent_to_select_id: selected_item_id = item_id
@@ -211,7 +214,7 @@ class MainWindow(tk.Tk):
         for annee in sorted(conges_par_annee.keys(), reverse=True):
             total_jours = sum(c.jours_pris for c in conges_par_annee[annee] if c.type_conge == 'Congé annuel' and c.statut == 'Actif'); summary_id = self.list_conges.insert("", "end", values=("", "", f"📅 ANNÉE {annee}", "", "", "", total_jours, f"{total_jours} jours pris", ""), tags=("summary",), open=True); holidays_set = self.manager.get_holidays_set_for_period(annee, annee + 1)
             for conge in sorted(conges_par_annee[annee], key=lambda c: c.date_debut):
-                cert_status = "✅ Justifié" if self.manager.get_certificat_for_conge(conge.id) else "❌ Manquant" if conge.type_conge == 'Congé de maladie' else ""; interim_info = ""
+                cert_status = "✅ Fourni" if self.manager.get_certificat_for_conge(conge.id) else "❌ Manquant" if conge.type_conge == 'Congé de maladie' else ""; interim_info = ""
                 if conge.interim_id: interim = self.manager.get_agent_by_id(conge.interim_id); interim_info = f"{interim.nom} {interim.prenom}" if interim else "Agent Supprimé"
                 tags = ('annule',) if conge.statut == 'Annulé' else (); reprise_date = calculate_reprise_date(conge.date_fin, holidays_set); reprise_date_str = format_date_for_display_short(reprise_date) if reprise_date else ""
                 self.list_conges.insert(summary_id, "end", values=(conge.id, cert_status, conge.type_conge, format_date_for_display_short(conge.date_debut), format_date_for_display_short(conge.date_fin), reprise_date_str, conge.jours_pris, conge.justif or "", interim_info), tags=tags)
@@ -237,12 +240,9 @@ class MainWindow(tk.Tk):
         self._update_conge_action_buttons_state()
 
     def _update_conge_action_buttons_state(self, event=None):
-        """Active ou désactive les boutons d'action des congés en fonction de la sélection."""
         conge_id = self.get_selected_conge_id()
-        if conge_id:
-            self.btn_generate_decision.config(state="normal")
-        else:
-            self.btn_generate_decision.config(state="disabled")
+        state = "normal" if conge_id else "disabled"
+        self.btn_generate_decision.config(state=state)
 
     def on_generate_decision_click(self):
         conge_id = self.get_selected_conge_id()
@@ -258,63 +258,48 @@ class MainWindow(tk.Tk):
             messagebox.showerror("Erreur", "Impossible de récupérer les informations du congé ou de l'agent.")
             return
 
-        # 1. Déterminer le chemin du modèle
+        templates_dir_name = CONFIG.get('paths', {}).get('templates_dir', 'templates')
         grade_str = agent.grade.lower().replace(" ", "_")
         template_name = f"{grade_str}.docx"
-        template_path = os.path.join("templates", template_name)
+        template_path = os.path.join(self.base_dir, templates_dir_name, template_name)
 
         if not os.path.exists(template_path):
             messagebox.showerror("Modèle manquant", f"Le modèle pour le grade '{agent.grade}' est introuvable.\nIl devrait être ici : {template_path}")
             return
             
-        # 2. Préparer le contexte
         details_solde_str = ""
         if conge.type_conge == "Congé annuel":
             details = self.manager.get_deduction_details(agent.id, conge.jours_pris)
             parts = []
-            # Trier par année pour un affichage logique
             for year, days in sorted(details.items()):
-                # S'assurer que les jours sont des entiers pour l'affichage
-                days_int = int(days)
-                jour_text = "يوم" if days_int == 1 else "أيام"
-                parts.append(f"{days_int} {jour_text} برسم سنة {year}")
-            details_solde_str = " و ".join(parts)
+                days_int = int(round(days))
+                jour_text = "jour" if days_int == 1 else "jours"
+                parts.append(f"{days_int} {jour_text} au titre de l'année {year}")
+            details_solde_str = " et ".join(parts)
 
         holidays_set = self.manager.get_holidays_set_for_period(conge.date_fin.year, conge.date_fin.year + 1)
         date_reprise = calculate_reprise_date(conge.date_fin, holidays_set)
 
         context = {
-            "{{nom_complet}}": f"{agent.nom} {agent.prenom}",
-            "{{grade}}": agent.grade,
-            "{{ppr}}": agent.ppr,
-            "{{date_debut}}": format_date_for_display(conge.date_debut),
-            "{{date_fin}}": format_date_for_display(conge.date_fin),
+            "{{nom_complet}}": f"{agent.nom} {agent.prenom}", "{{grade}}": agent.grade, "{{ppr}}": agent.ppr,
+            "{{date_debut}}": format_date_for_display(conge.date_debut), "{{date_fin}}": format_date_for_display(conge.date_fin),
             "{{date_reprise}}": format_date_for_display(date_reprise) if date_reprise else "N/A",
-            "{{jours_pris}}": str(conge.jours_pris),
-            "{{details_solde}}": details_solde_str,
+            "{{jours_pris}}": str(conge.jours_pris), "{{details_solde}}": details_solde_str,
             "{{date_aujourdhui}}": date.today().strftime("%d/%m/%Y")
         }
 
-        # 3. Demander où sauvegarder le fichier
-        initial_filename = f"Decision_Conge_{agent.nom}_{agent.prenom}_{conge.date_debut.strftime('%Y-%m-%d')}.docx"
+        initial_filename = f"Decision_Conge_{agent.nom}_{conge.date_debut.strftime('%Y-%m-%d')}.docx"
         save_path = filedialog.asksaveasfilename(
-            title="Enregistrer la décision de congé",
-            initialfile=initial_filename,
-            defaultextension=".docx",
+            title="Enregistrer la décision", initialfile=initial_filename, defaultextension=".docx",
             filetypes=[("Documents Word", "*.docx"), ("Tous les fichiers", "*.*")]
         )
 
-        if not save_path:
-            return
+        if not save_path: return
 
-        # 4. Générer le document
         try:
             generate_decision_from_template(template_path, save_path, context)
-            if messagebox.askyesno("Succès", f"La décision a été générée avec succès.\n\nVoulez-vous ouvrir le fichier ?", parent=self):
-                try:
-                    os.startfile(os.path.realpath(save_path))
-                except Exception as e:
-                    messagebox.showerror("Erreur d'ouverture", f"Impossible d'ouvrir le fichier:\n{e}", parent=self)
+            if messagebox.askyesno("Succès", "La décision a été générée.\nVoulez-vous ouvrir le fichier ?", parent=self):
+                self._open_file(save_path)
         except Exception as e:
             messagebox.showerror("Erreur de Génération", f"Une erreur est survenue:\n{e}", parent=self)
 
@@ -323,48 +308,67 @@ class MainWindow(tk.Tk):
     def next_page(self):
         if self.current_page < self.total_pages: self.current_page += 1; self.refresh_agents_list(self.get_selected_agent_id())
     def on_conge_double_click(self):
-        conge_id = self.get_selected_conge_id();
+        conge_id = self.get_selected_conge_id()
         if not conge_id: return
-        conge_type = self.list_conges.item(self.list_conges.selection()[0])["values"][2]
-        if conge_type == "Congé de maladie":
-            cert = self.manager.get_certificat_for_conge(conge_id)
-            if cert and cert[4] and os.path.exists(cert[4]):
-                try: os.startfile(os.path.realpath(cert[4]))
-                except Exception as e: messagebox.showerror("Erreur d'ouverture", f"Impossible d'ouvrir le fichier:\n{e}", parent=self)
-            else: messagebox.showinfo("Justificatif", "Aucun justificatif n'est attaché à ce congé.", parent=self)
+        
+        cert = self.manager.get_certificat_for_conge(conge_id)
+        if cert and cert[2] and os.path.exists(cert[2]): # Indice 2 pour chemin_fichier
+            try: self._open_file(cert[2])
+            except Exception as e: messagebox.showerror("Erreur d'ouverture", f"Impossible d'ouvrir le fichier:\n{e}", parent=self)
         else: self.modify_selected_conge()
+
     def open_justificatifs_suivi(self): JustificatifsWindow(self, self.manager)
+    
     def export_agents(self):
         save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Fichiers Excel", "*.xlsx")], title="Exporter la liste des agents", initialfile=f"Export_Agents_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
         if not save_path: return
         db_path = self.manager.db.db_file
         self._run_long_task(lambda: export_agents_to_excel(db_path, save_path), self._on_task_complete, "Exportation des agents en cours...")
+
     def export_conges(self):
         save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Fichiers Excel", "*.xlsx")], title="Exporter tous les congés", initialfile=f"Export_Conges_Total_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
         if not save_path: return
         db_path = self.manager.db.db_file
         self._run_long_task(lambda: export_all_conges_to_excel(db_path, save_path), self._on_task_complete, "Exportation de tous les congés en cours...")
+
     def import_agents(self):
         source_path = filedialog.askopenfilename(title="Sélectionner un fichier Excel à importer", filetypes=[("Fichiers Excel", "*.xlsx")])
         if not source_path: return
         db_path = self.manager.db.db_file
         self._run_long_task(lambda: import_agents_from_excel(db_path, source_path), self._on_import_complete, "Importation des agents depuis Excel en cours...")
+
+    def _open_file(self, filepath):
+        filepath = os.path.realpath(filepath)
+        try:
+            if sys.platform == "win32":
+                os.startfile(filepath)
+            elif sys.platform == "darwin":
+                subprocess.run(["open", filepath], check=True)
+            else:
+                subprocess.run(["xdg-open", filepath], check=True)
+        except Exception as e:
+            messagebox.showerror("Erreur d'Ouverture", f"Impossible d'ouvrir le fichier:\n{e}", parent=self)
+            
     def _run_long_task(self, task_lambda, on_complete, status_message):
         self.set_status(status_message); self.config(cursor="watch"); self._toggle_buttons_state("disabled"); result_container = []
         def task_wrapper():
             try: result_container.append(task_lambda())
             except Exception as e: result_container.append(e)
         worker_thread = threading.Thread(target=task_wrapper); worker_thread.start(); self._check_thread_completion(worker_thread, result_container, on_complete)
+    
     def _check_thread_completion(self, thread, result_container, on_complete):
         if thread.is_alive(): self.after(100, lambda: self._check_thread_completion(thread, result_container, on_complete))
         else:
             result = result_container[0] if result_container else None; on_complete(result); self.config(cursor=""); self._toggle_buttons_state("normal"); self.set_status("Prêt.")
+    
     def _on_task_complete(self, result):
         if isinstance(result, Exception): messagebox.showerror("Erreur", f"L'opération a échoué:\n{result}")
         elif result: messagebox.showinfo("Succès", result)
+    
     def _on_import_complete(self, result):
         self._on_task_complete(result)
         if not isinstance(result, Exception): self.refresh_all()
+
     def _toggle_buttons_state(self, state):
         for frame in [self.btn_frame_agents, self.io_frame_agents, self.btn_frame_conges, self.global_actions_frame]:
             for child in frame.winfo_children():

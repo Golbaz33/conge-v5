@@ -6,9 +6,8 @@ from datetime import date
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 # ---------------------------------------------------------------------------
 
-import pytest
 from core.conges.strategies import CongeAnnuelStrategy, CongeCalendaireStrategy
-from utils.config_loader import CONFIG, load_config
+from utils.config_loader import CONFIG
 
 # Charger une configuration minimale pour les tests
 # Créez un fichier 'config.yaml' à la racine si ce n'est pas déjà fait.

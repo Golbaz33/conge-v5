@@ -1,20 +1,30 @@
 app:
   title: "Gestion des Congés"
-  version: "3.0 - Pro"
+  version: "3.2 - Final"
 
 db:
   filename: "conges_v3.db"
   certificates_dir: "certificats"
 
+# NOUVELLE SECTION pour centraliser les chemins et répertoires
+paths:
+  templates_dir: "templates"
+
 # Paramètres des congés
 conges:
   maternite_duree: 98
   paternite_duree: 15
+  # Types de congés qui doivent être déduits du solde annuel
   types_decompte_solde:
     - "Congé annuel"
   
+  # Code pays pour les jours fériés officiels (ex: 'MA' pour Maroc, 'FR' pour France)
   holidays_country: 'MA'
+  
+  # Solde de jours de congé annuel ajouté par défaut lors de la clôture d'exercice
+  solde_annuel_par_defaut: 22.0
 
+# Paramètres de l'interface utilisateur
 ui:
   grades:
     - "Professeur"
@@ -23,19 +33,30 @@ ui:
     - "Technicien de santé"
     - "Administrateur"
     - "Technicien"
+    - "Adjoint Technique"
+    - "Adjoint Administratif"
+    
   types_conge:
     - "Congé annuel"
     - "Congé exceptionnel"
     - "Congé de maladie"
     - "Congé de maternité"
     - "Congé de paternité"
+  
+  # Types de fichiers autorisés pour les certificats médicaux
+  certificat_file_types:
+    - ("Documents PDF", "*.pdf")
+    - ("Images", "*.png *.jpg *.jpeg *.gif")
+    - ("Tous les fichiers", "*.*")
 
-# --- SECTION À AJOUTER ---
 # Noms des colonnes (en-têtes) attendues dans le fichier Excel lors de l'importation d'agents.
-# Les noms doivent être en minuscules et sans espaces.
+# Les noms doivent être en minuscules. 'nom' et 'prenom' sont obligatoires.
 agent_import_headers:
   - ppr
   - nom
   - prenom
   - grade
-  - solde
+  # Pour les soldes, le format doit être 'solde_AAAA' (ex: solde_2024)
+  - solde_2023
+  - solde_2024
+  - solde_2025

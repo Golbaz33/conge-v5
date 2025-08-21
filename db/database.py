@@ -1,5 +1,5 @@
 # Fichier : db/database.py
-# Version finale avec méthode pour récupérer le chemin du fichier DB.
+# Version finale corrigée : Ajout de la méthode pour gérer les certificats.
 
 import sqlite3
 from tkinter import messagebox
@@ -205,6 +205,14 @@ class DatabaseManager:
         
     def get_certificat_for_conge(self, conge_id):
         return self.execute_query("SELECT * FROM certificats_medicaux WHERE conge_id = ?", (conge_id,), fetch="one")
+    
+    def add_certificat(self, conge_id, file_path):
+        """
+        Ajoute ou met à jour l'entrée pour un certificat médical.
+        Utilise REPLACE pour simplifier la logique (si un cert existe déjà, il est remplacé).
+        """
+        query = "REPLACE INTO certificats_medicaux (id, conge_id, chemin_fichier) VALUES ((SELECT id FROM certificats_medicaux WHERE conge_id=?), ?, ?)"
+        self.execute_query(query, (conge_id, conge_id, file_path))
 
     def add_or_update_holiday(self, date_sql, name, h_type):
         self.execute_query("REPLACE INTO jours_feries_personnalises (date, nom, type) VALUES (?, ?, ?)", (date_sql, name, h_type)); return True
@@ -219,7 +227,7 @@ class DatabaseManager:
         self.execute_query("DELETE FROM jours_feries_personnalises WHERE date = ?", (date_sql,)); return True
         
     def get_sick_leaves_by_status(self, status='manquant', search_term=None):
-        query_base = "SELECT a.nom, a.prenom, a.ppr, c.date_debut, c.date_fin, c.jours_pris FROM conges c JOIN agents a ON c.agent_id = a.id"
+        query_base = "SELECT a.nom, a.prenom, a.ppr, c.date_debut, c.date_fin, c.jours_pris, c.id FROM conges c JOIN agents a ON c.agent_id = a.id"
         where_clauses = ["c.type_conge = 'Congé de maladie'", "c.statut = 'Actif'"]
         params = []
         if status == 'manquant':

@@ -1,7 +1,7 @@
 # Fichier : utils/date_utils.py
 # Version finale avec ajout de la fonction manquante.
 
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 from dateutil import parser
 import holidays
 import sqlite3

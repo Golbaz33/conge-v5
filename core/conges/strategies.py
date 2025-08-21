@@ -2,7 +2,7 @@
 # Version finale : gère le calcul des durées et la configuration de l'UI.
 
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
+from datetime import timedelta
 import os
 
 from utils.date_utils import jours_ouvres
@@ -65,7 +65,7 @@ class CongeAnnuelStrategy(CongeStrategy):
         temp_date = start_date
         days_counted = 0
         while days_counted < days_to_add:
-            if temp_date.weekday() < 5 and temp_date not in holidays_set:
+            if temp_date.weekday() < 5 and temp_date.date() not in holidays_set:
                 days_counted += 1
             if days_counted < days_to_add:
                 temp_date += timedelta(days=1)

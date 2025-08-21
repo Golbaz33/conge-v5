@@ -1,5 +1,5 @@
 # Fichier : core/conges/manager.py
-# Version finale avec la correction définitive de la logique de simulation de décompte.
+# Version finale corrigée : Ajout de la sauvegarde manuelle des soldes (création/update).
 
 import sqlite3
 import logging
@@ -10,13 +10,14 @@ from tkinter import messagebox
 
 from utils.date_utils import get_holidays_set_for_period, jours_ouvres, validate_date
 from utils.config_loader import CONFIG
-from db.models import Agent, Conge
+from db.models import Conge
 from core.constants import SoldeStatus
 
 class CongeManager:
     def __init__(self, db_manager, certificats_dir):
         self.db = db_manager
         self.certificats_dir = certificats_dir
+        os.makedirs(self.certificats_dir, exist_ok=True)
 
     def get_annee_exercice(self):
         return self.db.get_annee_exercice()
@@ -53,16 +54,30 @@ class CongeManager:
             logging.error(f"Échec de l'apurement des soldes : {e}", exc_info=True)
             raise e
     
-    def update_soldes_manuellement(self, updated_soldes_data):
+    def save_manual_soldes(self, agent_id, updates, creations):
+        """
+        Sauvegarde les modifications manuelles des soldes, en gérant
+        les mises à jour et les créations de nouvelles lignes de solde.
+        """
         self.db.conn.execute('BEGIN TRANSACTION')
         try:
-            for solde_id, new_value in updated_soldes_data.items():
+            # Gérer les mises à jour des soldes existants
+            for solde_id, new_value in updates.items():
                 self.db.update_solde_by_id(solde_id, new_value)
+            
+            # Gérer la création de nouveaux soldes
+            if creations:
+                annee_exercice = self.get_annee_exercice()
+                for year, value in creations.items():
+                    # Déterminer le statut en fonction de l'année
+                    statut = SoldeStatus.EXPIRE if year < annee_exercice - 2 else SoldeStatus.ACTIF
+                    self.db.create_solde_annuel(agent_id, year, value, statut)
+
             self.db.conn.commit()
             return True
         except sqlite3.Error as e:
             self.db.conn.rollback()
-            logging.error(f"Échec de la mise à jour manuelle des soldes : {e}", exc_info=True)
+            logging.error(f"Échec de la mise à jour manuelle des soldes pour agent {agent_id}: {e}", exc_info=True)
             raise e
 
     def get_all_agents(self, **kwargs): return self.db.get_agents(**kwargs)
@@ -127,10 +142,6 @@ class CongeManager:
             self.db.update_solde_by_id(solde_le_plus_recent.id, solde_final)
 
     def get_deduction_details(self, agent_id, jours_a_prendre):
-        """
-        CORRIGÉ : Simule la répartition du débit en restaurant d'abord l'état des soldes.
-        C'est la seule méthode fiable pour retrouver la répartition d'origine.
-        """
         if jours_a_prendre <= 0:
             return {}
 
@@ -138,39 +149,18 @@ class CongeManager:
         if not agent:
             return {}
 
-        # --- ÉTAPE 1: Restaurer l'état des soldes AVANT ce congé ---
-        
-        # On copie les soldes actuels pour ne pas les modifier
-        soldes_restaures = {s.annee: s.solde for s in agent.soldes_annuels if s.statut == SoldeStatus.ACTIF}
-        
-        # On simule le crédit (logique LIFO, inverse du débit)
-        jours_a_restaurer = float(jours_a_prendre)
-        soldes_tries_LIFO = sorted(soldes_restaures.keys(), reverse=True)
-
-        for annee in soldes_tries_LIFO:
-            if jours_a_restaurer < 0.001: break
-            solde_max_annee = float(CONFIG['conges'].get('solde_annuel_par_defaut', 22.0))
-            jours_pouvant_etre_rendus = solde_max_annee - soldes_restaures[annee]
-            jours_a_ajouter = min(jours_a_restaurer, jours_pouvant_etre_rendus)
-
-            if jours_a_ajouter > 0:
-                soldes_restaures[annee] += jours_a_ajouter
-                jours_a_restaurer -= jours_a_ajouter
-
-        # --- ÉTAPE 2: Simuler le débit (logique FIFO) sur les soldes restaurés ---
-
         jours_restants_a_deduire = float(jours_a_prendre)
         deduction_details = {}
-        soldes_tries_FIFO = sorted(soldes_restaures.keys())
+        soldes_actifs_tries = sorted([s for s in agent.soldes_annuels if s.statut == SoldeStatus.ACTIF], key=lambda s: s.annee)
 
-        for annee in soldes_tries_FIFO:
+        for solde_annuel in soldes_actifs_tries:
             if jours_restants_a_deduire < 0.001: break
             
-            solde_disponible = soldes_restaures[annee]
+            solde_disponible = solde_annuel.solde
             jours_pris_sur_ce_solde = min(solde_disponible, jours_restants_a_deduire)
             
             if jours_pris_sur_ce_solde > 0:
-                deduction_details[annee] = jours_pris_sur_ce_solde
+                deduction_details[solde_annuel.annee] = jours_pris_sur_ce_solde
                 jours_restants_a_deduire -= jours_pris_sur_ce_solde
         
         return deduction_details
@@ -239,7 +229,8 @@ class CongeManager:
             new_conge_id = self.db.ajouter_conge(conge_model)
             self.db.conn.commit()
 
-            if new_conge_id and type_conge == "Congé de maladie": self._handle_certificat_save(form_data, new_conge_id)
+            if new_conge_id and type_conge == "Congé de maladie": 
+                self._handle_certificat_save(form_data, new_conge_id)
             return True
 
         except (ValueError, sqlite3.Error) as e:
@@ -278,7 +269,8 @@ class CongeManager:
                 self._create_leave_segment(agent_id, new_end + timedelta(days=1), max_end_date, holidays_set)
 
             self.db.conn.commit()
-            if new_conge_id and type_conge == "Congé de maladie": self._handle_certificat_save(form_data, new_conge_id)
+            if new_conge_id and type_conge == "Congé de maladie": 
+                self._handle_certificat_save(form_data, new_conge_id)
             return True
         except (ValueError, sqlite3.Error) as e:
             self.db.conn.rollback(); raise e
@@ -309,9 +301,41 @@ class CongeManager:
             raise e
             
     def _handle_certificat_save(self, form_data, conge_id):
-        # Placeholder
-        pass
+        source_path = form_data.get('cert_path')
+        if not source_path or not os.path.exists(source_path):
+            return
+
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            agent_ppr = form_data.get('agent_ppr', 'unknown')
+            _, extension = os.path.splitext(source_path)
+            safe_filename = f"{timestamp}_{agent_ppr}_{conge_id}{extension}"
+            
+            destination_path = os.path.join(self.certificats_dir, safe_filename)
+
+            shutil.copy2(source_path, destination_path)
+            self.db.add_certificat(conge_id, destination_path)
+            logging.info(f"Certificat pour conge_id {conge_id} sauvegardé à {destination_path}")
+
+        except Exception as e:
+            logging.error(f"Échec de la sauvegarde du certificat pour conge_id {conge_id}: {e}", exc_info=True)
+            messagebox.showwarning("Erreur de Justificatif", 
+                "Le congé a été créé, mais une erreur est survenue lors de la sauvegarde du fichier justificatif.\n"
+                f"Veuillez le rattacher manuellement en modifiant le congé.\n\nErreur: {e}")
 
     def find_inconsistent_annual_leaves(self, year):
-        # Placeholder
-        pass
+        inconsistencies = []
+        holidays_set = self.get_holidays_set_for_period(year, year + 1)
+        
+        all_conges = self.get_all_conges()
+        annual_leaves_in_year = [
+            c for c in all_conges 
+            if c.type_conge == "Congé annuel" and c.date_debut.year == year and c.statut == 'Actif'
+        ]
+
+        for conge in annual_leaves_in_year:
+            recalculated_days = jours_ouvres(conge.date_debut, conge.date_fin, holidays_set)
+            if conge.jours_pris != recalculated_days:
+                inconsistencies.append((conge, recalculated_days))
+                
+        return inconsistencies

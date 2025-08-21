@@ -3,7 +3,6 @@
 
 import tkinter as tk
 from tkinter import ttk, messagebox
-from datetime import datetime
 
 from utils.config_loader import CONFIG
 from ui.widgets.arabic_keyboard import ArabicKeyboard
