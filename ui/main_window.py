@@ -1,6 +1,7 @@
 # Fichier : ui/main_window.py
-# CORRECTION (Phase 2) : Les appels aux fonctions d'import/export passent
-# maintenant directement self.manager au lieu de recréer une connexion DB.
+# CORRECTION (Bug WinError 3 - Import) : Les appels aux fonctions de
+# file_utils passent maintenant le chemin de la BDD et des certificats
+# pour une initialisation correcte du CongeManager dans les threads.
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -491,19 +492,25 @@ class MainWindow(tk.Tk):
         save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Fichiers Excel", "*.xlsx")], title="Exporter la liste des agents", initialfile=f"Export_Agents_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
         if not save_path:
             return
-        self._run_long_task(lambda: export_agents_to_excel(self.manager, save_path), self._on_task_complete, "Exportation des agents en cours...")
+        db_path = self.manager.db.db_file
+        cert_path = self.manager.certificats_dir
+        self._run_long_task(lambda: export_agents_to_excel(db_path, cert_path, save_path), self._on_task_complete, "Exportation des agents en cours...")
 
     def export_conges(self):
         save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Fichiers Excel", "*.xlsx")], title="Exporter tous les congés", initialfile=f"Export_Conges_Total_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
         if not save_path:
             return
-        self._run_long_task(lambda: export_all_conges_to_excel(self.manager, save_path), self._on_task_complete, "Exportation de tous les congés en cours...")
+        db_path = self.manager.db.db_file
+        cert_path = self.manager.certificats_dir
+        self._run_long_task(lambda: export_all_conges_to_excel(db_path, cert_path, save_path), self._on_task_complete, "Exportation de tous les congés en cours...")
 
     def import_agents(self):
         source_path = filedialog.askopenfilename(title="Sélectionner un fichier Excel à importer", filetypes=[("Fichiers Excel", "*.xlsx")])
         if not source_path:
             return
-        self._run_long_task(lambda: import_agents_from_excel(self.manager, source_path), self._on_import_complete, "Importation des agents depuis Excel en cours...")
+        db_path = self.manager.db.db_file
+        cert_path = self.manager.certificats_dir
+        self._run_long_task(lambda: import_agents_from_excel(db_path, cert_path, source_path), self._on_import_complete, "Importation des agents depuis Excel en cours...")
 
     def _open_file(self, filepath):
         filepath = os.path.realpath(filepath)
