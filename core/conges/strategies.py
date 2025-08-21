@@ -1,5 +1,6 @@
 # Fichier : core/conges/strategies.py
-# Version finale : gère le calcul des durées et la configuration de l'UI.
+# CORRECTION : La lecture de CONFIG a été déplacée des constructeurs (__init__)
+# vers la méthode configure_ui pour éviter les erreurs au démarrage.
 
 from abc import ABC, abstractmethod
 from datetime import timedelta
@@ -60,8 +61,9 @@ class CongeStrategy(ABC):
 class CongeAnnuelStrategy(CongeStrategy):
     """Stratégie pour les congés annuels, calculés en jours ouvrés."""
     def calculate_end_date(self, start_date, days_to_add, holidays_set):
-        # La seule différence est la suppression des .date() inutiles
-        if days_to_add <= 0: return start_date 
+        if days_to_add <= 0:
+            return start_date
+            
         temp_date = start_date
         days_counted = 0
         while days_counted < days_to_add:
@@ -77,7 +79,8 @@ class CongeAnnuelStrategy(CongeStrategy):
 class CongeCalendaireStrategy(CongeStrategy):
     """Stratégie pour les congés calculés en jours calendaires."""
     def calculate_end_date(self, start_date, days_to_add, holidays_set):
-        if days_to_add <= 0: return start_date
+        if days_to_add <= 0:
+            return start_date
         return start_date + timedelta(days=days_to_add - 1)
 
     def calculate_days(self, start_date, end_date, holidays_set):
@@ -93,14 +96,24 @@ class CongeMaterniteStrategy(CongeCalendaireStrategy):
     """Stratégie pour le congé maternité, avec une durée fixe."""
     def __init__(self):
         super().__init__()
-        self.days_value = str(CONFIG['conges']['maternite_duree'])
+        # On ne lit PAS CONFIG ici. On garde les valeurs par défaut.
         self.days_state = "normal"
         self.end_date_state = "normal"
+
+    def configure_ui(self, form):
+        # On lit la valeur de CONFIG seulement maintenant, c'est sûr.
+        self.days_value = str(CONFIG['conges']['maternite_duree'])
+        super().configure_ui(form)
 
 class CongePaterniteStrategy(CongeCalendaireStrategy):
     """Stratégie pour le congé paternité, avec une durée fixe."""
     def __init__(self):
         super().__init__()
-        self.days_value = str(CONFIG['conges']['paternite_duree'])
+        # On ne lit PAS CONFIG ici.
         self.days_state = "normal"
         self.end_date_state = "normal"
+    
+    def configure_ui(self, form):
+        # On lit la valeur de CONFIG seulement maintenant.
+        self.days_value = str(CONFIG['conges']['paternite_duree'])
+        super().configure_ui(form)

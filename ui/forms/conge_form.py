@@ -1,5 +1,6 @@
 # Fichier : ui/forms/conge_form.py
-# Version 4.2 : Adaptée au nouveau CongeManager et au système de soldes.
+# Description : Définit la fenêtre de formulaire utilisée pour ajouter une nouvelle
+# demande de congé ou pour modifier un congé existant pour un agent.
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -36,16 +37,12 @@ class CongeForm(tk.Toplevel):
         self.current_strategy = None
         self.original_cert_path = None
         
-        # --- Récupération de l'agent et de l'année d'exercice ---
         agent_data = self.manager.get_agent_by_id(self.agent_id)
         self.agent_ppr = agent_data.ppr
         agent_name = f"{agent_data.nom} {agent_data.prenom}"
         self.agent_solde_total = agent_data.get_solde_total_actif()
 
-        # NOTE : Récupération de l'année d'exercice depuis une source fiable
-        # Idéalement, le manager devrait avoir une méthode get_annee_exercice()
         self.annee_exercice = datetime.now().year
-        # -----------------------------------------------------------
         
         title = f"Modifier un Congé - {agent_name}" if self.is_modification else f"Ajouter un Congé - {agent_name}"
         self.title(title)
@@ -71,7 +68,6 @@ class CongeForm(tk.Toplevel):
         main_frame = ttk.Frame(self, padding=20)
         main_frame.pack(fill="both", expand=True)
 
-        # --- Cadre d'information sur le solde ---
         solde_info_frame = ttk.Frame(main_frame, relief="groove", padding=5)
         solde_info_frame.pack(fill="x", pady=(0, 10))
         ttk.Label(solde_info_frame, text="Solde Annuel Actif Total :", font=('Helvetica', 10, 'bold')).pack(side="left")
@@ -110,6 +106,7 @@ class CongeForm(tk.Toplevel):
         self.cert_frame = ttk.LabelFrame(main_frame, text="Certificat Médical", padding=10)
         self.cert_file_label = ttk.Label(self.cert_frame, text="Aucun fichier attaché.", anchor="w", wraplength=350)
         self.cert_file_label.pack(fill="x", pady=(0, 5))
+        
         cert_btn_frame = ttk.Frame(self.cert_frame)
         cert_btn_frame.pack(fill="x")
         ttk.Button(cert_btn_frame, text="Attacher un fichier...", command=self._attach_certificate).pack(side="left")
@@ -131,7 +128,8 @@ class CongeForm(tk.Toplevel):
 
     def _on_type_change(self, event=None):
         type_conge = self.type_var.get()
-        if not type_conge: return
+        if not type_conge:
+            return
         self.current_strategy = self.STRATEGIES[type_conge]
         self.current_strategy.configure_ui(self)
         self.after(100, self._update_end_date_from_days)
@@ -140,8 +138,9 @@ class CongeForm(tk.Toplevel):
         try:
             days = int(self.days_var.get())
             start_date = validate_date(self.start_date_entry.get())
-            if not start_date or days < 0: 
-                self._update_reprise_date(); return
+            if not start_date or days < 0:
+                self._update_reprise_date()
+                return
             holidays_set = self.manager.get_holidays_set_for_period(start_date.year, start_date.year + 2)
             end_date = self.current_strategy.calculate_end_date(start_date, days, holidays_set)
             current_state = self.end_date_entry.cget('state')
@@ -150,15 +149,18 @@ class CongeForm(tk.Toplevel):
             self.end_date_entry.insert(0, end_date.strftime("%d/%m/%Y"))
             self.end_date_entry.config(state=current_state)
             self._update_reprise_date()
-        except (ValueError, TypeError): 
-            self._update_reprise_date(); return
+        except (ValueError, TypeError):
+            self._update_reprise_date()
+            return
 
     def _update_days_from_dates(self):
         try:
             start_date = validate_date(self.start_date_entry.get())
             end_date = validate_date(self.end_date_entry.get())
-            if not start_date or not end_date or end_date < start_date: 
-                self.days_var.set("0"); self._update_reprise_date(); return
+            if not start_date or not end_date or end_date < start_date:
+                self.days_var.set("0")
+                self._update_reprise_date()
+                return
             holidays_set = self.manager.get_holidays_set_for_period(start_date.year, end_date.year)
             days = self.current_strategy.calculate_days(start_date, end_date, holidays_set)
             current_state = self.days_spinbox.cget('state')
@@ -166,8 +168,9 @@ class CongeForm(tk.Toplevel):
             self.days_var.set(str(days))
             self.days_spinbox.config(state=current_state)
             self._update_reprise_date()
-        except (ValueError, TypeError): 
-            self.days_var.set("0"); self._update_reprise_date()
+        except (ValueError, TypeError):
+            self.days_var.set("0")
+            self._update_reprise_date()
 
     def _update_reprise_date(self):
         self.reprise_date_entry.config(state="normal")
@@ -184,7 +187,9 @@ class CongeForm(tk.Toplevel):
         conge = self.manager.get_conge_by_id(self.conge_id)
         if not conge:
             messagebox.showerror("Erreur", "Congé introuvable.", parent=self)
-            self.destroy(); return
+            self.destroy()
+            return
+            
         self.type_var.set(conge.type_conge)
         self.start_date_entry.insert(0, format_date_for_display(conge.date_debut.strftime('%Y-%m-%d')))
         self.end_date_entry.insert(0, format_date_for_display(conge.date_fin.strftime('%Y-%m-%d')))
@@ -194,7 +199,8 @@ class CongeForm(tk.Toplevel):
         if conge.interim_id:
             for name, id_ in self.interim_agents.items():
                 if id_ == conge.interim_id:
-                    self.interim_var.set(name); break
+                    self.interim_var.set(name)
+                    break
 
     def _load_interim_agents(self):
         agents = self.manager.get_all_agents(exclude_id=self.agent_id)
@@ -215,18 +221,21 @@ class CongeForm(tk.Toplevel):
     
     def _on_validate(self):
         try:
-            # On prépare le dictionnaire de données pour le manager
             form_data = {
-                'agent_id': self.agent_id, 'agent_ppr': self.agent_ppr,
-                'conge_id': self.conge_id, 'type_conge': self.type_var.get(),
-                'date_debut': self.start_date_entry.get(), 'date_fin': self.end_date_entry.get(),
-                'jours_pris': int(self.days_var.get()), 'justif': self.justif_entry.get().strip(),
+                'agent_id': self.agent_id,
+                'agent_ppr': self.agent_ppr,
+                'conge_id': self.conge_id,
+                'type_conge': self.type_var.get(),
+                'date_debut': self.start_date_entry.get(),
+                'date_fin': self.end_date_entry.get(),
+                'jours_pris': int(self.days_var.get()),
+                'justif': self.justif_entry.get().strip(),
                 'interim_id': self.interim_agents.get(self.interim_var.get()),
-                'cert_path': self.cert_path_var.get(), 'original_cert_path': self.original_cert_path,
-                'annee_exercice': self.annee_exercice # On transmet l'année d'exercice
+                'cert_path': self.cert_path_var.get(),
+                'original_cert_path': self.original_cert_path,
+                'annee_exercice': self.annee_exercice
             }
             
-            # On appelle la nouvelle méthode centralisée du manager
             success = self.manager.handle_conge_submission(form_data, self.is_modification)
             
             if success:

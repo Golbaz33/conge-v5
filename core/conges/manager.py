@@ -1,5 +1,11 @@
 # Fichier : core/conges/manager.py
-# Version finale corrigée : Ajout de la sauvegarde manuelle des soldes (création/update).
+# Description : Le cœur de la logique métier de l'application.
+# Cette classe agit comme un intermédiaire entre l'interface utilisateur (UI)
+# et la base de données (DB). Elle contient toutes les règles de gestion :
+# - Calcul et modification des soldes de congés.
+# - Logique de validation des demandes de congés (ex: chevauchement).
+# - Gestion du cycle de vie des agents et des congés.
+# - Tâches administratives comme la clôture annuelle.
 
 import sqlite3
 import logging
@@ -80,23 +86,54 @@ class CongeManager:
             logging.error(f"Échec de la mise à jour manuelle des soldes pour agent {agent_id}: {e}", exc_info=True)
             raise e
 
-    def get_all_agents(self, **kwargs): return self.db.get_agents(**kwargs)
-    def get_agents_count(self, term=None): return self.db.get_agents_count(term=term)
-    def get_agent_by_id(self, agent_id): return self.db.get_agent_by_id(agent_id)
-    def get_all_conges(self): return self.db.get_conges()
-    def get_conges_for_agent(self, agent_id): return self.db.get_conges(agent_id=agent_id)
-    def get_conge_by_id(self, conge_id): return self.db.get_conge_by_id(conge_id)
-    def get_certificat_for_conge(self, conge_id): return self.db.get_certificat_for_conge(conge_id)
-    def get_holidays_for_year(self, year): return self.db.get_holidays_for_year(year)
-    def get_sick_leaves_by_status(self, status, search_term=None): return self.db.get_sick_leaves_by_status(status, search_term)
-    def get_holidays_set_for_period(self, start_year, end_year): return get_holidays_set_for_period(self.db, start_year, end_year)
-    def get_agents_on_leave_today(self): return self.db.get_agents_on_leave_today()
-    def add_holiday(self, date_sql, name, h_type): return self.db.add_holiday(date_sql, name, h_type)
-    def delete_holiday(self, date_sql): return self.db.delete_holiday(date_sql)
-    def add_or_update_holiday(self, date_sql, name, h_type): return self.db.add_or_update_holiday(date_sql, name, h_type)
+    # --- Méthodes de lecture (déléguées à la base de données) ---
+    def get_all_agents(self, **kwargs):
+        return self.db.get_agents(**kwargs)
 
+    def get_agents_count(self, term=None):
+        return self.db.get_agents_count(term=term)
+
+    def get_agent_by_id(self, agent_id):
+        return self.db.get_agent_by_id(agent_id)
+
+    def get_all_conges(self):
+        return self.db.get_conges()
+
+    def get_conges_for_agent(self, agent_id):
+        return self.db.get_conges(agent_id=agent_id)
+
+    def get_conge_by_id(self, conge_id):
+        return self.db.get_conge_by_id(conge_id)
+
+    def get_certificat_for_conge(self, conge_id):
+        return self.db.get_certificat_for_conge(conge_id)
+
+    def get_holidays_for_year(self, year):
+        return self.db.get_holidays_for_year(year)
+
+    def get_sick_leaves_by_status(self, status, search_term=None):
+        return self.db.get_sick_leaves_by_status(status, search_term)
+
+    def get_holidays_set_for_period(self, start_year, end_year):
+        return get_holidays_set_for_period(self.db, start_year, end_year)
+
+    def get_agents_on_leave_today(self):
+        return self.db.get_agents_on_leave_today()
+
+    def add_holiday(self, date_sql, name, h_type):
+        return self.db.add_holiday(date_sql, name, h_type)
+
+    def delete_holiday(self, date_sql):
+        return self.db.delete_holiday(date_sql)
+
+    def add_or_update_holiday(self, date_sql, name, h_type):
+        return self.db.add_or_update_holiday(date_sql, name, h_type)
+
+    # --- Logique de gestion des soldes ---
     def _debiter_solde(self, agent_id, jours_a_prendre):
-        if jours_a_prendre <= 0: return
+        if jours_a_prendre <= 0:
+            return
+            
         agent = self.get_agent_by_id(agent_id)
         if agent.get_solde_total_actif() < jours_a_prendre:
             raise ValueError(f"Solde total insuffisant ({agent.get_solde_total_actif()}j) pour décompter {jours_a_prendre}j.")
@@ -105,7 +142,8 @@ class CongeManager:
         
         jours_restants_a_debiter = float(jours_a_prendre)
         for solde_annuel in soldes_actifs:
-            if jours_restants_a_debiter < 0.001: break
+            if jours_restants_a_debiter < 0.001:
+                break
             
             jours_pris_sur_ce_solde = min(float(solde_annuel.solde), jours_restants_a_debiter)
             
@@ -118,14 +156,17 @@ class CongeManager:
             raise sqlite3.Error("Incohérence de solde détectée lors du débit.")
 
     def _crediter_solde(self, agent_id, jours_a_rendre):
-        if jours_a_rendre <= 0: return
+        if jours_a_rendre <= 0:
+            return
+            
         agent = self.get_agent_by_id(agent_id)
         
         soldes_actifs = sorted([s for s in agent.soldes_annuels if s.statut == SoldeStatus.ACTIF], key=lambda s: s.annee, reverse=True)
         
         jours_restants_a_rendre = float(jours_a_rendre)
         for solde_annuel in soldes_actifs:
-            if jours_restants_a_rendre < 0.001: break
+            if jours_restants_a_rendre < 0.001:
+                break
             
             solde_max_annee = float(CONFIG['conges'].get('solde_annuel_par_defaut', 22.0))
             jours_pouvant_etre_rendus = solde_max_annee - solde_annuel.solde
@@ -154,7 +195,8 @@ class CongeManager:
         soldes_actifs_tries = sorted([s for s in agent.soldes_annuels if s.statut == SoldeStatus.ACTIF], key=lambda s: s.annee)
 
         for solde_annuel in soldes_actifs_tries:
-            if jours_restants_a_deduire < 0.001: break
+            if jours_restants_a_deduire < 0.001:
+                break
             
             solde_disponible = solde_annuel.solde
             jours_pris_sur_ce_solde = min(solde_disponible, jours_restants_a_deduire)
@@ -165,6 +207,7 @@ class CongeManager:
         
         return deduction_details
 
+    # --- Logique de gestion des agents et congés ---
     def save_agent(self, agent_data, is_modification=False):
         if is_modification:
             return self.db.modifier_agent(agent_data['id'], agent_data['nom'], agent_data['prenom'], agent_data['ppr'], agent_data['grade'])
@@ -214,7 +257,9 @@ class CongeManager:
                     return False
 
             self.db.conn.execute('BEGIN TRANSACTION')
-            agent_id = form_data['agent_id']; jours_pris = form_data['jours_pris']; type_conge = form_data['type_conge']
+            agent_id = form_data['agent_id']
+            jours_pris = form_data['jours_pris']
+            type_conge = form_data['type_conge']
             
             if is_modification:
                 old_conge = self.get_conge_by_id(form_data['conge_id'])
@@ -234,10 +279,12 @@ class CongeManager:
             return True
 
         except (ValueError, sqlite3.Error) as e:
-            if self.db.conn.in_transaction: self.db.conn.rollback()
+            if self.db.conn.in_transaction:
+                self.db.conn.rollback()
             raise e
         except Exception as e:
-            if self.db.conn.in_transaction: self.db.conn.rollback()
+            if self.db.conn.in_transaction:
+                self.db.conn.rollback()
             logging.error(f"Erreur inattendue soumission congé: {e}", exc_info=True)
             raise e
 
@@ -273,10 +320,12 @@ class CongeManager:
                 self._handle_certificat_save(form_data, new_conge_id)
             return True
         except (ValueError, sqlite3.Error) as e:
-            self.db.conn.rollback(); raise e
+            self.db.conn.rollback()
+            raise e
 
     def _create_leave_segment(self, agent_id, start_date, end_date, holidays_set):
-        if start_date > end_date: return
+        if start_date > end_date:
+            return
         jours = jours_ouvres(start_date, end_date, holidays_set)
         if jours > 0:
             self._debiter_solde(agent_id, jours)

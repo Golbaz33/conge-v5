@@ -1,5 +1,6 @@
 # Fichier : utils/date_utils.py
-# Version finale avec ajout de la fonction manquante.
+# Description : Fournit des fonctions utilitaires pour la manipulation,
+# la validation et le formatage des dates à travers l'application.
 
 from datetime import datetime, timedelta
 from dateutil import parser
@@ -10,7 +11,8 @@ from utils.config_loader import CONFIG
 
 def format_date_for_display(date_str_sql):
     """Convertit une date du format SQL (YYYY-MM-DD) en format affichable (DD/MM/YYYY)."""
-    if not date_str_sql: return ""
+    if not date_str_sql:
+        return ""
     try:
         # Si c'est déjà un objet date/datetime, on le formate directement
         if hasattr(date_str_sql, 'strftime'):
@@ -19,12 +21,10 @@ def format_date_for_display(date_str_sql):
     except (ValueError, TypeError):
         return date_str_sql
 
-# =========================================================================
-# CORRECTION : Ajout de la fonction manquante
-# =========================================================================
 def format_date_for_display_short(date_obj):
     """Convertit un objet date en format affichable court (JJ/MM/AA)."""
-    if not date_obj: return ""
+    if not date_obj:
+        return ""
     try:
         if hasattr(date_obj, 'strftime'):
             return date_obj.strftime("%d/%m/%y")
@@ -34,7 +34,8 @@ def format_date_for_display_short(date_obj):
 
 def validate_date(date_str, dayfirst=True):
     """Valide et convertit une chaîne de caractères en objet datetime."""
-    if not date_str: return None
+    if not date_str:
+        return None
     try:
         return parser.parse(date_str, dayfirst=dayfirst)
     except (ValueError, TypeError):

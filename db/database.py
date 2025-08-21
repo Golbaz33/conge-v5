@@ -1,5 +1,8 @@
 # Fichier : db/database.py
-# Version finale corrigée : Ajout de la méthode pour gérer les certificats.
+# Description : Gère toutes les interactions avec la base de données SQLite.
+# Cette classe encapsule la connexion, l'exécution des requêtes, la gestion
+# des transactions, les migrations de schéma et toutes les opérations
+# CRUD (Create, Read, Update, Delete) pour les agents, congés, soldes, etc.
 
 import sqlite3
 from tkinter import messagebox
@@ -26,15 +29,19 @@ class DatabaseManager:
             return False
 
     def close(self):
-        if self.conn: self.conn.close()
+        if self.conn:
+            self.conn.close()
 
     def execute_query(self, query, params=(), fetch=None):
-        if not self.conn: raise sqlite3.Error("Pas de connexion à la base de données.")
+        if not self.conn:
+            raise sqlite3.Error("Pas de connexion à la base de données.")
         try:
             cursor = self.conn.cursor()
             cursor.execute(query, params)
-            if fetch == "one": return cursor.fetchone()
-            if fetch == "all": return cursor.fetchall()
+            if fetch == "one":
+                return cursor.fetchone()
+            if fetch == "all":
+                return cursor.fetchall()
             self.conn.commit()
             return cursor.lastrowid
         except sqlite3.Error as e:
@@ -95,7 +102,8 @@ class DatabaseManager:
                 logging.info(f"Migrations SQL à appliquer : {sorted(migrations.keys())}")
                 for version in sorted(migrations.keys()):
                     script_path = migrations[version]
-                    with open(script_path, 'r', encoding='utf-8') as f: script = f.read()
+                    with open(script_path, 'r', encoding='utf-8') as f:
+                        script = f.read()
                     self.conn.cursor().executescript(script)
                     self.execute_query("REPLACE INTO db_version (version) VALUES (?)", (version,))
                 messagebox.showinfo("Mise à jour", "La structure de la base de données a été mise à jour.")
@@ -105,7 +113,8 @@ class DatabaseManager:
 
     def get_annee_exercice(self):
         result = self.execute_query("SELECT config_value FROM system_config WHERE config_key = 'annee_exercice'", fetch="one")
-        if result: return int(result[0])
+        if result:
+            return int(result[0])
         else:
             current_year = datetime.now().year
             self.set_annee_exercice(current_year)
@@ -119,7 +128,8 @@ class DatabaseManager:
         return self.execute_query(query, (str(statut),), fetch="all")
 
     def apurer_soldes_by_ids(self, solde_ids):
-        if not solde_ids: return
+        if not solde_ids:
+            return
         placeholders = ','.join('?' for _ in solde_ids)
         query = f"UPDATE soldes_annuels SET solde = 0 WHERE id IN ({placeholders})"
         self.execute_query(query, solde_ids)
@@ -128,14 +138,26 @@ class DatabaseManager:
         self.execute_query("UPDATE soldes_annuels SET solde = ? WHERE id = ?", (new_value, solde_id))
 
     def get_agents(self, term=None, limit=None, offset=None, exclude_id=None):
-        q = "SELECT id, nom, prenom, ppr, grade FROM agents"; p, c = [], []
-        if term: t = f"%{term.lower()}%"; c.append("(LOWER(nom) LIKE ? OR LOWER(prenom) LIKE ? OR LOWER(ppr) LIKE ?)"); p.extend([t, t, t])
-        if exclude_id is not None: c.append("id != ?"); p.append(exclude_id)
-        if c: q += " WHERE " + " AND ".join(c)
+        q = "SELECT id, nom, prenom, ppr, grade FROM agents"
+        p, c = [], []
+        if term:
+            t = f"%{term.lower()}%"
+            c.append("(LOWER(nom) LIKE ? OR LOWER(prenom) LIKE ? OR LOWER(ppr) LIKE ?)")
+            p.extend([t, t, t])
+        if exclude_id is not None:
+            c.append("id != ?")
+            p.append(exclude_id)
+        if c:
+            q += " WHERE " + " AND ".join(c)
         q += " ORDER BY nom, prenom"
-        if limit is not None: q += " LIMIT ? OFFSET ?"; p.extend([limit, offset])
+        if limit is not None:
+            q += " LIMIT ? OFFSET ?"
+            p.extend([limit, offset])
+            
         agents_rows = self.execute_query(q, tuple(p), fetch="all")
-        if not agents_rows: return []
+        if not agents_rows:
+            return []
+            
         agents = [Agent.from_db_row(row) for row in agents_rows]
         agent_ids = [agent.id for agent in agents]
         soldes_query = f"SELECT id, agent_id, annee, solde, statut FROM soldes_annuels WHERE agent_id IN ({','.join('?' for _ in agent_ids)})"
@@ -143,14 +165,17 @@ class DatabaseManager:
         soldes_map = {}
         for row in all_soldes_rows:
             solde_obj = SoldeAnnuel.from_db_row(row)
-            if solde_obj.agent_id not in soldes_map: soldes_map[solde_obj.agent_id] = []
+            if solde_obj.agent_id not in soldes_map:
+                soldes_map[solde_obj.agent_id] = []
             soldes_map[solde_obj.agent_id].append(solde_obj)
-        for agent in agents: agent.soldes_annuels = soldes_map.get(agent.id, [])
+        for agent in agents:
+            agent.soldes_annuels = soldes_map.get(agent.id, [])
         return agents
 
     def get_agent_by_id(self, agent_id):
         row = self.execute_query("SELECT id, nom, prenom, ppr, grade FROM agents WHERE id=?", (agent_id,), fetch="one")
-        if not row: return None
+        if not row:
+            return None
         agent = Agent.from_db_row(row)
         soldes_rows = self.execute_query("SELECT id, agent_id, annee, solde, statut FROM soldes_annuels WHERE agent_id = ?", (agent.id,), fetch="all")
         agent.soldes_annuels = [SoldeAnnuel.from_db_row(s_row) for s_row in soldes_rows]
@@ -158,21 +183,28 @@ class DatabaseManager:
 
     def get_agents_count(self, term=None):
         q, p = "SELECT COUNT(*) FROM agents", []
-        if term: t = f"%{term.lower()}%"; q += " WHERE LOWER(nom) LIKE ? OR LOWER(prenom) LIKE ? OR LOWER(ppr) LIKE ?"; p.extend([t, t, t])
+        if term:
+            t = f"%{term.lower()}%"
+            q += " WHERE LOWER(nom) LIKE ? OR LOWER(prenom) LIKE ? OR LOWER(ppr) LIKE ?"
+            p.extend([t, t, t])
         return self.execute_query(q, tuple(p), fetch="one")[0]
 
     def ajouter_agent(self, nom, prenom, ppr, grade):
-        try: return self.execute_query("INSERT INTO agents (nom, prenom, ppr, grade) VALUES (?, ?, ?, ?)",(nom.strip(), prenom.strip(), ppr.strip(), grade.strip()))
-        except sqlite3.IntegrityError: return None
+        try:
+            return self.execute_query("INSERT INTO agents (nom, prenom, ppr, grade) VALUES (?, ?, ?, ?)", (nom.strip(), prenom.strip(), ppr.strip(), grade.strip()))
+        except sqlite3.IntegrityError:
+            return None
 
     def modifier_agent(self, agent_id, nom, prenom, ppr, grade):
         try:
-            self.execute_query("UPDATE agents SET nom=?, prenom=?, ppr=?, grade=? WHERE id=?",(nom.strip(), prenom.strip(), ppr.strip(), grade.strip(), agent_id))
+            self.execute_query("UPDATE agents SET nom=?, prenom=?, ppr=?, grade=? WHERE id=?", (nom.strip(), prenom.strip(), ppr.strip(), grade.strip(), agent_id))
             return True
-        except sqlite3.IntegrityError: return False
+        except sqlite3.IntegrityError:
+            return False
 
     def supprimer_agent(self, agent_id):
-        self.execute_query("DELETE FROM agents WHERE id=?", (agent_id,)); return True
+        self.execute_query("DELETE FROM agents WHERE id=?", (agent_id,))
+        return True
 
     def ajouter_conge(self, conge_model):
         return self.execute_query("INSERT INTO conges (agent_id, type_conge, justif, interim_id, date_debut, date_fin, jours_pris) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -181,14 +213,20 @@ class DatabaseManager:
     def supprimer_conge(self, conge_id):
         cert = self.execute_query("SELECT chemin_fichier FROM certificats_medicaux WHERE conge_id = ?", (conge_id,), fetch="one")
         if cert and cert[0] and os.path.exists(cert[0]):
-            try: os.remove(cert[0])
-            except OSError as e: logging.error(f"Erreur suppression certificat pour conge_id {conge_id}: {e}")
-        self.execute_query("DELETE FROM conges WHERE id=?", (conge_id,)); return True
+            try:
+                os.remove(cert[0])
+            except OSError as e:
+                logging.error(f"Erreur suppression certificat pour conge_id {conge_id}: {e}")
+        self.execute_query("DELETE FROM conges WHERE id=?", (conge_id,))
+        return True
 
     def get_conges(self, agent_id=None):
         q, p = "SELECT id, agent_id, type_conge, justif, interim_id, date_debut, date_fin, jours_pris, statut FROM conges", ()
-        if agent_id: q += " WHERE agent_id=? ORDER BY date_debut DESC"; p = (agent_id,)
-        else: q += " ORDER BY date_debut DESC"
+        if agent_id:
+            q += " WHERE agent_id=? ORDER BY date_debut DESC"
+            p = (agent_id,)
+        else:
+            q += " ORDER BY date_debut DESC"
         return [Conge.from_db_row(r) for r in self.execute_query(q, p, fetch="all") if r]
 
     def get_conge_by_id(self, conge_id):
@@ -196,8 +234,11 @@ class DatabaseManager:
         return Conge.from_db_row(r) if r else None
         
     def get_overlapping_leaves(self, agent_id, start_date, end_date, conge_id_exclu=None):
-        q = "SELECT * FROM conges WHERE agent_id=? AND date_fin >= ? AND date_debut <= ? AND statut = 'Actif'"; p = [agent_id, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
-        if conge_id_exclu: q += " AND id != ?"; p.append(conge_id_exclu)
+        q = "SELECT * FROM conges WHERE agent_id=? AND date_fin >= ? AND date_debut <= ? AND statut = 'Actif'"
+        p = [agent_id, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+        if conge_id_exclu:
+            q += " AND id != ?"
+            p.append(conge_id_exclu)
         return [Conge.from_db_row(r) for r in self.execute_query(q, tuple(p), fetch="all") if r]
 
     def get_holidays_for_year(self, year):
@@ -215,16 +256,19 @@ class DatabaseManager:
         self.execute_query(query, (conge_id, conge_id, file_path))
 
     def add_or_update_holiday(self, date_sql, name, h_type):
-        self.execute_query("REPLACE INTO jours_feries_personnalises (date, nom, type) VALUES (?, ?, ?)", (date_sql, name, h_type)); return True
+        self.execute_query("REPLACE INTO jours_feries_personnalises (date, nom, type) VALUES (?, ?, ?)", (date_sql, name, h_type))
+        return True
 
     def add_holiday(self, date_sql, name, h_type):
         try:
             self.execute_query("INSERT INTO jours_feries_personnalises (date, nom, type) VALUES (?, ?, ?)", (date_sql, name, h_type))
             return True
-        except sqlite3.IntegrityError: return False
+        except sqlite3.IntegrityError:
+            return False
 
     def delete_holiday(self, date_sql):
-        self.execute_query("DELETE FROM jours_feries_personnalises WHERE date = ?", (date_sql,)); return True
+        self.execute_query("DELETE FROM jours_feries_personnalises WHERE date = ?", (date_sql,))
+        return True
         
     def get_sick_leaves_by_status(self, status='manquant', search_term=None):
         query_base = "SELECT a.nom, a.prenom, a.ppr, c.date_debut, c.date_fin, c.jours_pris, c.id FROM conges c JOIN agents a ON c.agent_id = a.id"
