@@ -1,6 +1,5 @@
 # Fichier : ui/forms/conge_form.py
-# Description : Définit la fenêtre de formulaire utilisée pour ajouter une nouvelle
-# demande de congé ou pour modifier un congé existant pour un agent.
+# Ce fichier utilise la nouvelle fonction validate_date sans nécessiter de modification.
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -8,7 +7,6 @@ import sqlite3
 import logging
 from datetime import datetime
 
-# Import des composants de l'architecture
 from core.conges.strategies import (
     CongeAnnuelStrategy, CongeMaladieStrategy, CongeMaterniteStrategy,
     CongePaterniteStrategy, CongeCalendaireStrategy
@@ -233,7 +231,8 @@ class CongeForm(tk.Toplevel):
                 'interim_id': self.interim_agents.get(self.interim_var.get()),
                 'cert_path': self.cert_path_var.get(),
                 'original_cert_path': self.original_cert_path,
-                'annee_exercice': self.annee_exercice
+                'annee_exercice': self.annee_exercice,
+                'parent_form': self  # Pour la boîte de dialogue de chevauchement
             }
             
             success = self.manager.handle_conge_submission(form_data, self.is_modification)

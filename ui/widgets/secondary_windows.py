@@ -1,15 +1,19 @@
 # Fichier : ui/widgets/secondary_windows.py
-# Description : Contient les classes pour toutes les fenêtres secondaires de
-# l'application, telles que la fenêtre d'administration, le suivi des
-# justificatifs, la gestion des sauvegardes et les formulaires d'édition.
+# Ce fichier utilise la nouvelle fonction validate_date sans nécessiter de modification.
 
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
-import holidays
 import sqlite3
 import os
 import shutil
+
+# La bibliothèque 'holidays' est utilisée ici, mais elle est gérée de manière
+# optionnelle dans date_utils, donc aucune modification n'est nécessaire ici.
+try:
+    import holidays
+except ImportError:
+    pass
 
 from ui.widgets.date_picker import DatePickerWindow
 from utils.date_utils import validate_date, format_date_for_display
@@ -449,13 +453,19 @@ class AdminWindow(tk.Toplevel):
         try:
             year = int(self.year_var.get())
             country_code = CONFIG['conges']['holidays_country']
-            official_holidays = holidays.country_holidays(country_code, years=year)
-            custom_holidays_list = self.manager.get_holidays_for_year(str(year))
+            
             all_holidays_dict = {}
-            for h_date, h_name in official_holidays.items():
-                all_holidays_dict[h_date] = (h_name, "Officiel")
+            if 'holidays' in sys.modules:
+                 official_holidays = holidays.country_holidays(country_code, years=year)
+                 for h_date, h_name in official_holidays.items():
+                    all_holidays_dict[h_date] = (h_name, "Officiel")
+
+            custom_holidays_list = self.manager.get_holidays_for_year(str(year))
             for h_date_str, h_name, h_type in custom_holidays_list:
-                all_holidays_dict[validate_date(h_date_str).date()] = (h_name, h_type)
+                validated_date = validate_date(h_date_str)
+                if validated_date:
+                    all_holidays_dict[validated_date.date()] = (h_name, h_type)
+
             for h_date, (h_name, h_type) in sorted(all_holidays_dict.items()):
                 self.holidays_tree.insert("", "end", values=(format_date_for_display(h_date), h_name, h_type))
         except (tk.TclError, ValueError):
@@ -476,7 +486,10 @@ class AdminWindow(tk.Toplevel):
         if not date_str:
             return
         
-        date_sql = validate_date(date_str).strftime('%Y-%m-%d')
+        date_obj = validate_date(date_str)
+        if not date_obj: return
+        
+        date_sql = date_obj.strftime('%Y-%m-%d')
         msg = f"Voulez-vous vraiment supprimer l'entrée personnalisée :\n\n{desc} ({date_str}) ?"
         if messagebox.askyesno("Confirmation", msg, parent=self):
             try:
@@ -495,10 +508,15 @@ class AdminWindow(tk.Toplevel):
 
     def _process_holiday_update(self, original_date_str, new_date_obj, new_name):
         try:
-            original_date_sql = validate_date(original_date_str).strftime('%Y-%m-%d')
+            original_date_sql_obj = validate_date(original_date_str)
+            if not original_date_sql_obj: return
+
+            original_date_sql = original_date_sql_obj.strftime('%Y-%m-%d')
             new_date_sql = new_date_obj.strftime('%Y-%m-%d')
+            
             if original_date_sql != new_date_sql:
                 self.manager.delete_holiday(original_date_sql)
+            
             if self.manager.add_or_update_holiday(new_date_sql, new_name, "Personnalisé"):
                 self.refresh_holidays_list()
             else:

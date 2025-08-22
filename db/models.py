@@ -1,8 +1,8 @@
 # Fichier : db/models.py
-# Version 5.2 : Utilise l'Enum SoldeStatus pour éviter les magic strings.
+# Ce fichier utilise la nouvelle fonction validate_date sans nécessiter de modification.
 
 from utils.date_utils import validate_date
-from core.constants import SoldeStatus # <-- IMPORT DE NOTRE ENUM
+from core.constants import SoldeStatus
 
 class SoldeAnnuel:
     """Représente une ligne de la table soldes_annuels."""
@@ -11,7 +11,6 @@ class SoldeAnnuel:
         self.agent_id = agent_id
         self.annee = annee
         self.solde = float(solde)
-        # On s'assure que le statut est bien un membre de notre Enum
         self.statut = SoldeStatus(statut.strip() if statut else SoldeStatus.ACTIF)
 
     @classmethod
@@ -19,7 +18,6 @@ class SoldeAnnuel:
         """Crée une instance de SoldeAnnuel à partir d'une ligne de la base de données."""
         if not row:
             return None
-        # id, agent_id, annee, solde, statut
         return cls(id=row[0], agent_id=row[1], annee=row[2], solde=row[3], statut=row[4])
 
 
@@ -47,7 +45,6 @@ class Agent:
 
     def get_solde_total_actif(self):
         """Calcule et retourne la somme de tous les soldes avec le statut 'Actif'."""
-        # On compare maintenant avec la constante au lieu d'une chaîne de caractères
         return sum(s.solde for s in self.soldes_annuels if s.statut == SoldeStatus.ACTIF)
 
 

@@ -1,12 +1,9 @@
 # Fichier : ui/main_window.py
-# CORRECTION (Bug WinError 3 - Import) : Les appels aux fonctions de
-# file_utils passent maintenant le chemin de la BDD et des certificats
-# pour une initialisation correcte du CongeManager dans les threads.
+# Ce fichier utilise les nouvelles fonctions de formatage de date sans nécessiter de modification.
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from collections import defaultdict
-from dateutil import parser
 import logging
 import os
 import sqlite3
@@ -82,7 +79,6 @@ class MainWindow(tk.Tk):
 
     def create_widgets(self):
         """Crée et organise tous les widgets de l'interface principale."""
-        # --- Style ---
         style = ttk.Style(self)
         style.theme_use('clam')
         style.configure("Treeview", rowheight=25, font=('Helvetica', 10))
@@ -91,11 +87,9 @@ class MainWindow(tk.Tk):
         style.configure("TButton", font=('Helvetica', 10))
         style.configure("TLabelframe.Label", font=('Helvetica', 12, 'bold'))
 
-        # --- Structure principale (PanedWindow) ---
         main_pane = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
         main_pane.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        # --- Panneau de gauche (Agents) ---
         left_pane = ttk.Frame(main_pane, padding=5)
         main_pane.add(left_pane, weight=3)
 
@@ -111,7 +105,6 @@ class MainWindow(tk.Tk):
         search_entry = ttk.Entry(search_frame, textvariable=self.search_var)
         search_entry.pack(fill=tk.X, expand=True, side=tk.LEFT)
         
-        # --- Liste des Agents (Treeview) ---
         an_n, an_n1, an_n2 = self.annee_exercice, self.annee_exercice - 1, self.annee_exercice - 2
         self.cols_agents = ["ID", "Nom", "Prénom", "PPR", "Grade", f"Solde {an_n2}", f"Solde {an_n1}", f"Solde {an_n}", "Solde Total"]
         self.list_agents = ttk.Treeview(agents_frame, columns=self.cols_agents, show="headings", selectmode="browse")
@@ -133,7 +126,6 @@ class MainWindow(tk.Tk):
         self.list_agents.bind("<<TreeviewSelect>>", self.on_agent_select)
         self.list_agents.bind("<Double-1>", lambda e: self.modify_selected_agent())
 
-        # --- Pagination Agents ---
         pagination_frame = ttk.Frame(agents_frame)
         pagination_frame.pack(fill=tk.X, padx=5, pady=5)
         self.prev_button = ttk.Button(pagination_frame, text="<< Précédent", command=self.prev_page)
@@ -143,24 +135,20 @@ class MainWindow(tk.Tk):
         self.next_button = ttk.Button(pagination_frame, text="Suivant >>", command=self.next_page)
         self.next_button.pack(side=tk.RIGHT)
         
-        # --- Boutons d'action Agents ---
         self.btn_frame_agents = ttk.Frame(agents_frame)
         self.btn_frame_agents.pack(fill=tk.X, padx=5, pady=(0, 5))
         ttk.Button(self.btn_frame_agents, text="Ajouter", command=self.add_agent_ui).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
         ttk.Button(self.btn_frame_agents, text="Modifier", command=self.modify_selected_agent).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
         ttk.Button(self.btn_frame_agents, text="Supprimer", command=self.delete_selected_agent).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
         
-        # --- Boutons Import/Export Agents ---
         self.io_frame_agents = ttk.Frame(agents_frame)
         self.io_frame_agents.pack(fill=tk.X, padx=5, pady=(5, 5))
         ttk.Button(self.io_frame_agents, text="Importer Agents (Excel)", command=self.import_agents).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
         ttk.Button(self.io_frame_agents, text="Exporter Agents (Excel)", command=self.export_agents).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
 
-        # --- Panneau de droite (Congés et Tableau de bord) ---
         right_pane = ttk.PanedWindow(main_pane, orient=tk.VERTICAL)
         main_pane.add(right_pane, weight=2)
         
-        # --- Section Congés ---
         conges_frame = ttk.LabelFrame(right_pane, text="Congés de l'agent sélectionné")
         right_pane.add(conges_frame, weight=3)
         
@@ -193,7 +181,6 @@ class MainWindow(tk.Tk):
         self.list_conges.bind("<Double-1>", lambda e: self.on_conge_double_click())
         self.list_conges.bind("<<TreeviewSelect>>", self._update_conge_action_buttons_state)
         
-        # --- Boutons d'action Congés ---
         self.btn_frame_conges = ttk.Frame(conges_frame)
         self.btn_frame_conges.pack(fill=tk.X, padx=5, pady=(0, 5))
         ttk.Button(self.btn_frame_conges, text="Ajouter", command=self.add_conge_ui).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
@@ -202,7 +189,6 @@ class MainWindow(tk.Tk):
         self.btn_generate_decision = ttk.Button(self.btn_frame_conges, text="Générer Décision", command=self.on_generate_decision_click, state="disabled")
         self.btn_generate_decision.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
         
-        # --- Section Tableau de bord ---
         stats_frame = ttk.LabelFrame(right_pane, text="Tableau de Bord")
         right_pane.add(stats_frame, weight=1)
         
@@ -219,7 +205,6 @@ class MainWindow(tk.Tk):
         self.list_on_leave.column("Date de Reprise", width=120, anchor="center")
         self.list_on_leave.pack(fill="both", expand=True, padx=5, pady=5)
         
-        # --- Boutons d'Actions Globales ---
         self.global_actions_frame = ttk.Frame(stats_frame)
         self.global_actions_frame.pack(fill=tk.X, padx=5, pady=(5, 5))
         ttk.Button(self.global_actions_frame, text="Actualiser", command=self.refresh_stats).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
@@ -227,7 +212,6 @@ class MainWindow(tk.Tk):
         ttk.Button(self.global_actions_frame, text="Administration", command=self.open_admin_window).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
         ttk.Button(self.global_actions_frame, text="Exporter Tous les Congés", command=self.export_conges).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
         
-        # --- Barre de Statut ---
         self.status_var = tk.StringVar(value="Prêt.")
         status_bar = ttk.Label(self, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
@@ -378,12 +362,12 @@ class MainWindow(tk.Tk):
             holidays_set = self.manager.get_holidays_set_for_period(self.annee_exercice, self.annee_exercice + 1)
             agents_on_leave_data = self.manager.get_agents_on_leave_today()
             for nom, prenom, ppr, type_conge, date_fin_str in agents_on_leave_data:
-                date_fin = parser.parse(date_fin_str).date()
-                reprise_date = calculate_reprise_date(date_fin, holidays_set)
+                # La date de la DB est déjà un objet date/datetime grâce à `detect_types`
+                reprise_date = calculate_reprise_date(date_fin_str, holidays_set)
                 reprise_date_display = format_date_for_display(reprise_date)
                 self.list_on_leave.insert("", "end", values=(f"{nom} {prenom}", ppr, type_conge, reprise_date_display))
-        except sqlite3.Error as e:
-            self.list_on_leave.insert("", "end", values=(f"Erreur DB: {e}", "", "", ""))
+        except (sqlite3.Error, AttributeError) as e:
+            self.list_on_leave.insert("", "end", values=(f"Erreur: {e}", "", "", ""))
 
     def search_agents(self):
         self.current_page = 1
@@ -477,7 +461,7 @@ class MainWindow(tk.Tk):
             return
         
         cert = self.manager.get_certificat_for_conge(conge_id)
-        if cert and cert[2] and os.path.exists(cert[2]):  # Indice 2 pour chemin_fichier
+        if cert and cert[2] and os.path.exists(cert[2]):
             try:
                 self._open_file(cert[2])
             except Exception as e:

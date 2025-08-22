@@ -1,11 +1,5 @@
 # Fichier : core/conges/manager.py
-# Description : Le cœur de la logique métier de l'application.
-# Cette classe agit comme un intermédiaire entre l'interface utilisateur (UI)
-# et la base de données (DB). Elle contient toutes les règles de gestion :
-# - Calcul et modification des soldes de congés.
-# - Logique de validation des demandes de congés (ex: chevauchement).
-# - Gestion du cycle de vie des agents et des congés.
-# - Tâches administratives comme la clôture annuelle.
+# Ce fichier utilise la nouvelle fonction validate_date sans nécessiter de modification.
 
 import sqlite3
 import logging
@@ -67,15 +61,12 @@ class CongeManager:
         """
         self.db.conn.execute('BEGIN TRANSACTION')
         try:
-            # Gérer les mises à jour des soldes existants
             for solde_id, new_value in updates.items():
                 self.db.update_solde_by_id(solde_id, new_value)
             
-            # Gérer la création de nouveaux soldes
             if creations:
                 annee_exercice = self.get_annee_exercice()
                 for year, value in creations.items():
-                    # Déterminer le statut en fonction de l'année
                     statut = SoldeStatus.EXPIRE if year < annee_exercice - 2 else SoldeStatus.ACTIF
                     self.db.create_solde_annuel(agent_id, year, value, statut)
 

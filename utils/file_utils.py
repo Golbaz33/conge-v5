@@ -1,7 +1,5 @@
 # Fichier : utils/file_utils.py
-# CORRECTION (Bug WinError 3 - Import) : La fonction utilitaire pour les threads
-# doit maintenant recevoir le chemin du dossier des certificats pour initialiser
-# correctement le CongeManager et éviter une erreur os.makedirs('').
+# Version finale intégrant la lecture de la config ET la génération de PPR robuste.
 
 import openpyxl
 from openpyxl.utils import get_column_letter
@@ -11,8 +9,8 @@ import re
 import logging
 import docx
 import os
+import uuid  # Import nécessaire pour la génération d'ID uniques
 
-# Import des classes nécessaires
 from db.database import DatabaseManager
 from core.conges.manager import CongeManager
 from utils.config_loader import CONFIG
@@ -26,7 +24,6 @@ def _perform_db_operation_with_manager(db_path, certificats_path, operation_call
     if not db.connect():
         raise ConnectionError("Impossible de se connecter à la base de données depuis le thread.")
     
-    # Utilise le bon chemin pour les certificats
     manager = CongeManager(db, certificats_dir=certificats_path)
 
     try:
@@ -38,7 +35,6 @@ def _perform_db_operation_with_manager(db_path, certificats_path, operation_call
 def export_agents_to_excel(db_path, certificats_path, save_path):
     """Exporte la liste des agents. Conçu pour être exécuté dans un thread."""
     def operation(manager):
-        # ... (le reste de la fonction est inchangé)
         agents = manager.get_all_agents()
         if not agents:
             return "Aucun agent à exporter."
@@ -82,7 +78,6 @@ def export_agents_to_excel(db_path, certificats_path, save_path):
 def export_all_conges_to_excel(db_path, certificats_path, save_path):
     """Exporte la liste de tous les congés. Conçu pour être exécuté dans un thread."""
     def operation(manager):
-        # ... (le reste de la fonction est inchangé)
         all_conges = manager.get_all_conges()
         if not all_conges:
             return "Aucun congé à exporter."
@@ -122,11 +117,10 @@ def export_all_conges_to_excel(db_path, certificats_path, save_path):
 def import_agents_from_excel(db_path, certificats_path, source_path):
     """Importe des agents avec une logique de colonnes optionnelles."""
     def operation(manager):
-        # ... (le reste de la fonction est inchangé)
         errors = []
         added_count, updated_count = 0, 0
         
-        required_headers = ['nom', 'prenom']
+        required_headers = CONFIG.get('ui', {}).get('agent_import_headers_required', ['nom', 'prenom'])
         grades = CONFIG['ui']['grades']
         default_grade = grades[0] if grades else "Administrateur"
         
@@ -150,7 +144,11 @@ def import_agents_from_excel(db_path, certificats_path, source_path):
                     if not nom or not prenom:
                         raise ValueError("Nom et prénom sont obligatoires.")
 
-                    ppr = str(row[col_map.get('ppr')] or '').strip() or f"{nom.upper()[:4]}_{datetime.now().strftime('%f')}"
+                    ppr = str(row[col_map.get('ppr')] or '').strip()
+                    if not ppr:
+                        ppr_suffix = str(uuid.uuid4())[:8]
+                        ppr = f"{nom.upper()[:4]}_{ppr_suffix}"
+
                     grade = str(row[col_map.get('grade')] or '').strip() or default_grade
                     if grade not in grades:
                         raise ValueError(f"Grade '{grade}' invalide. Grades valides : {', '.join(grades)}")

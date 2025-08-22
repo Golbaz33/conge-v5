@@ -1,25 +1,32 @@
 # Fichier : utils/date_utils.py
-# Description : Fournit des fonctions utilitaires pour la manipulation,
-# la validation et le formatage des dates à travers l'application.
+# Version finale corrigée avec validation de date stricte et gestion d'erreur.
 
-from datetime import datetime, timedelta
-from dateutil import parser
-import holidays
+from datetime import datetime, timedelta, date
 import sqlite3
 import logging
 from utils.config_loader import CONFIG
+
+# --- Gestion optionnelle de la bibliothèque holidays ---
+try:
+    import holidays
+    HOLIDAYS_AVAILABLE = True
+except ImportError:
+    HOLIDAYS_AVAILABLE = False
+    logging.warning("Bibliothèque 'holidays' non trouvée. Seuls les jours fériés personnalisés seront chargés.")
+
+# --- Fonctions de formatage (ajustées pour la nouvelle validation) ---
 
 def format_date_for_display(date_str_sql):
     """Convertit une date du format SQL (YYYY-MM-DD) en format affichable (DD/MM/YYYY)."""
     if not date_str_sql:
         return ""
     try:
-        # Si c'est déjà un objet date/datetime, on le formate directement
         if hasattr(date_str_sql, 'strftime'):
             return date_str_sql.strftime("%d/%m/%Y")
-        return parser.parse(date_str_sql).strftime("%d/%m/%Y")
-    except (ValueError, TypeError):
-        return date_str_sql
+        validated_date = validate_date(date_str_sql)
+        return validated_date.strftime("%d/%m/%Y") if validated_date else str(date_str_sql)
+    except (ValueError, TypeError, AttributeError):
+        return str(date_str_sql)
 
 def format_date_for_display_short(date_obj):
     """Convertit un objet date en format affichable court (JJ/MM/AA)."""
@@ -28,32 +35,67 @@ def format_date_for_display_short(date_obj):
     try:
         if hasattr(date_obj, 'strftime'):
             return date_obj.strftime("%d/%m/%y")
-        return parser.parse(str(date_obj)).strftime("%d/%m/%y")
-    except (ValueError, TypeError):
+        validated_date = validate_date(str(date_obj))
+        return validated_date.strftime("%d/%m/%y") if validated_date else str(date_obj)
+    except (ValueError, TypeError, AttributeError):
         return str(date_obj)
 
-def validate_date(date_str, dayfirst=True):
-    """Valide et convertit une chaîne de caractères en objet datetime."""
+# --- Fonction de validation (corrigée) ---
+
+def validate_date(date_str):
+    """
+    Valide et convertit une chaîne de caractères en objet datetime de manière stricte.
+    Accepte les formats JJ/MM/AAAA, JJ-MM-AAAA, et AAAA-MM-JJ.
+    Retourne None si le format est invalide.
+    """
     if not date_str:
         return None
-    try:
-        return parser.parse(date_str, dayfirst=dayfirst)
-    except (ValueError, TypeError):
+    
+    if isinstance(date_str, datetime):
+        return date_str
+    if isinstance(date_str, date):
+        return datetime.combine(date_str, datetime.min.time())
+    if not isinstance(date_str, str):
         return None
+
+    # Nettoie la chaîne pour ne garder que la partie date
+    date_part = str(date_str).strip().split(" ")[0]
+    accepted_formats = ["%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d"]
+    
+    for fmt in accepted_formats:
+        try:
+            return datetime.strptime(date_part, fmt)
+        except (ValueError, TypeError):
+            continue
+            
+    return None
+
+# --- Fonctions de calcul (ajustées pour la nouvelle validation) ---
 
 def get_holidays_set_for_period(db_manager, start_year, end_year):
     """Charge les jours fériés (officiels et personnalisés) pour une période donnée."""
     country_code = CONFIG['conges']['holidays_country']
     all_h = {}
+    
     for year in range(start_year, end_year + 2):
-        all_h.update(holidays.country_holidays(country_code, years=year))
+        # Charge les jours fériés officiels si la bibliothèque est disponible
+        if HOLIDAYS_AVAILABLE:
+            try:
+                all_h.update(holidays.country_holidays(country_code, years=year))
+            except Exception as e:
+                logging.error(f"Erreur lors de la récupération des jours fériés officiels pour {year}: {e}")
+
+        # Charge les jours fériés personnalisés depuis la base de données
         try:
             if db_manager and db_manager.conn:
                 db_h = db_manager.get_holidays_for_year(str(year))
                 for date_str, name, type in db_h:
-                    all_h[validate_date(date_str).date()] = name
+                    validated_date = validate_date(date_str)
+                    if validated_date:
+                        all_h[validated_date.date()] = name
         except sqlite3.Error as e:
-            logging.error(f"Erreur lors du chargement des jours fériés pour l'année {year}: {e}")
+            logging.error(f"Erreur lors du chargement des jours fériés personnalisés pour {year}: {e}")
+            
     return set(all_h.keys())
 
 def jours_ouvres(date_debut, date_fin, holidays_set):
